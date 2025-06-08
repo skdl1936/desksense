@@ -525,7 +525,7 @@
         //차트 초기화
         resetConcentrationChart()
         resetLeaveChart()
-        
+
         const studyStatus = data.study_status;
         // 공부 종료 버튼 막기
         const endButton = document.getElementById('end-study')
@@ -535,6 +535,11 @@
         if (data.concentration !== undefined){
           document.getElementById('concentration').innerText = `${data.concentration}`
         }
+
+        if (data.leave_count !== undefined){
+          document.getElementById('leave-count').innerText = `${data.leave_count}`
+        }
+        
 
         studyStartTime = new Date(data.start_time);
         

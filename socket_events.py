@@ -3,7 +3,8 @@ from common import sio, calculate_concentration
 from sensor_reader import read_pir, read_distance
 import asyncio
 from datetime import datetime, timedelta, timezone
-
+from collections import deque
+ 
 # clientId 기준으로 사용자별 시간 저장
 user_sessions = {} 
 KST = timezone(timedelta(hours=9))
@@ -43,7 +44,8 @@ async def study_start(sid, data):
     print(f"시간: {user_sessions[client_id]['start_time'].strftime('%Y-%m-%dT%H:%M:%S')}")
     await sio.emit('study_started',{
         "start_time": user_sessions[client_id]['start_time'].strftime('%Y-%m-%dT%H:%M:%S'),
-        "study_status": user_sessions[client_id]['study_status']
+        "study_status": user_sessions[client_id]['study_status'],
+        'leave_count': user_sessions[client_id]['leave_count']
     },to=sid)
 
 # 공부가 끝났을 때
@@ -82,6 +84,7 @@ async def study_end(sid,data):
         user_sessions[client_id]['study_status'] = False
         user_sessions[client_id]['leave_count'] = 0
         user_sessions[client_id]['is_away'] = False
+        user_sessions[client_id]['leave_count_for_chart'] = 0
     else:
         await sio.emit('study_result',{
             'total_time': '00:00:00',
@@ -107,15 +110,21 @@ async def handle_status_request(sid, data):
             await sio.emit('study_started', {
                 'start_time': start_time.strftime('%Y-%m-%dT%H:%M:%S') if start_time else None,
                 'study_status': study_status,
-                'concentration': concentration
+                'concentration': concentration,
+                'leave_count': session['leave_count']
             }, to=sid)
             
 
 cooldown = False
+# 초음파센서 몇개를 평균으로 잡을 건지
+DISTANCE_LEN = 5
+distance_buffer = deque(maxlen=DISTANCE_LEN)
 
+# 거리값 
 #  pir, 초음파센서 값을 가져와서 user_sessions에 저장
 async def sensor_loop():
     global cooldown
+    global DISTANCE_LEN
     cooldown_time = 15
 
     while True:
@@ -127,30 +136,35 @@ async def sensor_loop():
             for client_id in user_sessions:
                 user_sessions[client_id]['pir_count'] += 1
             cooldown = True
-
             asyncio.create_task(reset_cooldown(cooldown_time))
         
         # 초음파 센서 처리
-        for client_id, session in user_sessions.items():
-            if session.get('study_status', False):  # 공부 중일 때만 체크
-                if 10 <= dist <= 400:  #쓰레기값 범위
-                    if dist >= 100: #자리에 벗어날 때
-                        if not session.get('is_away', False):
+        if 10 <= dist <= 400: # 이 범위 이상이나 이하는 잡음으로 간주
+            distance_buffer.append(dist)
+        else:
+            print(f'잡음 무시, 거리:{dist} ')
+        
+        if len(distance_buffer) == DISTANCE_LEN:
+            avg_dist = sum(distance_buffer) / DISTANCE_LEN
+            print(f'평균 거리: {avg_dist:.2f}cm')
+
+            for client_id, session in user_sessions.items():
+                if session.get('study_status', False): # 공부 중일 때
+                    if avg_dist >= 200:
+                        if not session.get('is_away', False): # 자리에 앉아 있었는지
                             session['leave_count'] += 1
                             session['leave_count_for_chart'] += 1
                             session['is_away'] = True
-                            print(f'{client_id} 자리를 비움. 총 이탈 횟수: {session["leave_count"]}')
-
-                            # 자리비움 횟수 증가한것 전송
+                            print(f"{client_id} 자리를 비움. 총 이탈 횟수: {session['leave_count']}")
+                            
                             await sio.emit('leave_update', {
                                 'clientId': client_id,
                                 'leave_count': session['leave_count']
                             })
                             print('자리비움 증가로 소켓 요청 보냄')
-                    else: #자리에 앉아있을때 
+                    else:
                         session['is_away'] = False
-                else:
-                    print(f"[초음파 무시됨] dist={dist} (센서 잡음)")
+        
         await asyncio.sleep(1)
 
 # 이벤트 루트에서 함수들을 비동기로 실행하기 위함
@@ -184,7 +198,7 @@ async def concentration_loop():
 
 # 집중도 주기적으로 차트에 반영하기 위한 함수
 async def concentration_chart_loop():
-    chart_cycle = 10;
+    chart_cycle = 60;
     while True:
         now = datetime.now(KST)
         for client_id, session in user_sessions.items():
@@ -203,7 +217,7 @@ async def concentration_chart_loop():
 
 # 자리이탈 횟수 주기적으로 차트에 반영하는 함수
 async def leave_chart_loop():
-    chart_cycle = 10;
+    chart_cycle = 60;
     while True:
         now = datetime.now(KST)
         timestamp = now.strftime('%H:%M')
