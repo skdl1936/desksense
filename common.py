@@ -48,4 +48,11 @@ def calculate_concentration(start_time, count):
     concentration = max(0, 1 - (distracted_seconds / total_seconds))
     return round(concentration * 100, 2)
 
+# 차트에 그릴 집중도
+def calculate_interval_concentration(duration_seconds, count):
+    if duration_seconds == 0:
+        return 0.0
 
+    distracted_seconds = count * 15
+    concentration = max(0, 1 - (distracted_seconds / duration_seconds))
+    return min(round(concentration * 100, 2), 100)

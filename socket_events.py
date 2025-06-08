@@ -1,5 +1,5 @@
 #socket_events.py
-from common import sio, calculate_concentration
+from common import sio, calculate_concentration, calculate_interval_concentration
 from sensor_reader import read_pir, read_distance
 import asyncio
 from datetime import datetime, timedelta, timezone
@@ -20,6 +20,7 @@ async def connect(sid, environ, auth):
     user_sessions[client_id] = {
         'start_time': None, # 공부 시작 시간
         'pir_count': 0, #움직임 횟수
+        'pir_count_for_chart': 0,
         'study_status': False, # 공부중인지
         'leave_count': 0, # 자리비움 횟수
         'leave_count_for_chart': 0,
@@ -80,6 +81,7 @@ async def study_end(sid,data):
 
         # 유저 세션 초기화
         user_sessions[client_id]['pir_count'] = 0
+        user_sessions[client_id]['pir_count_for_chart'] = 0
         user_sessions[client_id]['start_time'] = None
         user_sessions[client_id]['study_status'] = False
         user_sessions[client_id]['leave_count'] = 0
@@ -135,6 +137,7 @@ async def sensor_loop():
         if pir == 1 and not cooldown:
             for client_id in user_sessions:
                 user_sessions[client_id]['pir_count'] += 1
+                user_sessions[client_id]['pir_count_for_chart'] += 1 
             cooldown = True
             asyncio.create_task(reset_cooldown(cooldown_time))
         
@@ -203,15 +206,17 @@ async def concentration_chart_loop():
         now = datetime.now(KST)
         for client_id, session in user_sessions.items():
             start_time = session.get('start_time')
-            if start_time:
-                count = session.get('pir_count',0)
-                concentration = calculate_concentration(start_time, count)
+            if start_time: # 공부중일 때 
+                count = session.get('pir_count_for_chart',0)
+                concentration = calculate_interval_concentration(chart_cycle, count)
 
                 await sio.emit('concentration_chart_point',{
                     'clientId': client_id,
                     'concentration': concentration,
                     'timestamp': now.strftime('%H:%M')
                 })
+
+                session['pir_count_for_chart'] = 0
 
         await asyncio.sleep(chart_cycle) # 1분마다 차트 반영
 

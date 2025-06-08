@@ -533,11 +533,15 @@
 
         // 집중도 표시
         if (data.concentration !== undefined){
-          document.getElementById('concentration').innerText = `${data.concentration}`
+          document.getElementById('concentration').innerText = `${data.concentration}%`
+        }else{
+          document.getElementById('concentration').innerText = '측정 중'
         }
 
         if (data.leave_count !== undefined){
-          document.getElementById('leave-count').innerText = `${data.leave_count}`
+          document.getElementById('leave-count').innerText = `${data.leave_count}회`
+        }else{
+          document.getElementById('leave-count').innerText = '0회'
         }
         
 
