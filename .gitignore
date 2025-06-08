@@ -1,0 +1,5 @@
+desksenseVenv/
+__pycache__/
+.lgd-nfy0
+*.pyc
+*.log
